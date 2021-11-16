@@ -1,0 +1,80 @@
+---
+- hosts: localhost
+  connection: local
+  vars:
+    ovirt_password: mypassword
+    disk_name: ubuntu2110-202111-disk
+    image_path: ubuntu-21.10-server-cloudimg-amd64.img
+    template_vm: template-ubuntu2110-202111
+    template_name: ubuntu2110-202111
+
+  pre_tasks:
+    - name: Obtain SSO token with using username/password credentials
+      ovirt.ovirt.ovirt_auth:
+         url: https://ovirt.example.com/ovirt-engine/api
+         username: admin@internal
+         ca_file: ca.pem
+         password: "{{ ovirt_password }}"
+  tasks:
+
+   - ovirt.ovirt.ovirt_cluster_info:
+       auth: "{{ ovirt_auth }}"
+     register: result
+   - ansible.builtin.debug:
+       msg: "{{ result.ovirt_clusters }}"
+   - ansible.builtin.debug:
+       msg: "{{ ovirt_auth }}"
+   - name: Make sure Template do not exist
+     ovirt.ovirt.ovirt_template:
+       auth: "{{ ovirt_auth }}"
+       name: "{{ template_name }}"
+       state: absent
+   - name: Make sure VM does not exist
+     ovirt.ovirt.ovirt_vm:
+       auth: "{{ ovirt_auth }}"
+       name: "{{ template_vm }}"
+       state: absent
+   - ovirt.ovirt.ovirt_disk:
+       auth: "{{ ovirt_auth }}"
+       name: "{{ disk_name }}"
+       interface: virtio
+       size: 3GiB
+       format: cow
+       image_path: "{{ image_path }}"
+       storage_domain: hosted_storage
+   - name: Run VM with cloud init
+     ovirt.ovirt.ovirt_vm:
+       cloud_init_persist: yes
+       auth: "{{ ovirt_auth }}"
+       name: "{{ template_vm }}"
+       cluster: Default
+       memory: 2GiB
+       cpu_cores: 2
+       cpu_sockets: 1
+       type: server
+       nics:
+         - name: nic1
+           profile_name: ovirtmgmt
+       disks:
+         - name: "{{ disk_name }}"
+           bootable: True
+       cloud_init:
+         authorized_ssh_keys: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEcvnQo9XMWuJ7IOPb63S+xGoZX7eo0b6StJpoKJhcRo drs@Tyche6c.local
+         timezone: Asia/Bangkok
+         host_name: ubuntu2110
+         custom_script: |
+           packages:
+             - qemu-guest-agent
+             - docker.io
+           runcmd:
+             - [/etc/init.d/qemu-guest-agent, restart ]
+             - [usermod, -aG, docker, drs]
+         user_name: drs
+         root_password: super_password
+   - ovirt.ovirt.ovirt_template:
+       cluster: Default
+       auth: "{{ ovirt_auth }}"
+       name: "{{ template_name }}"
+       vm: "{{ template_vm }}"
+       description: Test
+      
